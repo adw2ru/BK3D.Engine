@@ -1,0 +1,1 @@
+start ..\ukncbtl\ukncbtl /autostart /disk0:..\bk3de\main.dsk /boot1
