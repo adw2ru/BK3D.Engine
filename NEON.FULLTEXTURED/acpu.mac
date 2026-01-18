@@ -1,0 +1,1109 @@
+	.title	CPU
+	.mcall	.print .exit .setto
+	.mcall	.ttyou
+	.enabl	LC, AMA
+	.list	MEB
+
+.macro RET
+	return
+.endm
+
+@include ap16mac.mac
+
+	.asect
+	.=1000
+	
+	msx		= 0		; msx (1) or Slavic (0) mouse
+
+	Get8kb		= 174200	; allocate some 8kb blocks of high memory
+	Free8kb		= 174202	; release some 8kb blocks of memory for the current process
+	Blocks		= 16.		; number of 8kb blocks
+	; Blocks layout:
+	; 0..7: Textures
+	; 8..11: Screen
+	; ...
+
+	StartRegister	= 161226	; 161220=000000, 161222=020000, 161224=040000, 161226=060000, 161230=100000
+	NumOfRegisters	= 2		; (2 for half of screen) or (1 for textures and 1 for unroll code)
+
+	VXsize = 208.
+	VYsize = 150.
+
+	C_HALF1 = 40000/2		; VXsize*VYsize/2
+	C_HALF2 = 34740/2
+
+	C_VADDR	 = 60000
+
+Start:	mov	#1000, SP		; just in case 
+	clr	@#177560		; clear keyboard status? 
+
+	.print	#MsgHello
+
+	; starting
+	call	GetAllMem
+
+	mov	RamTop,R1
+	call	PrintOctal
+
+	call	GetTopMem
+
+	call	LoadTextures
+
+	tst	LoadStatus
+	beq	11$
+	call	FreeTopMem
+	.exit
+11$:
+
+	call	MouseInit
+	tst	mflg
+	beq	10$
+	.print	#MsgMouse
+10$:
+
+	call	ClearScreen
+
+	call	WindowInit
+	call	KeyboardInit
+	call	VSyncInit
+
+	call	GONG
+
+	call	GStart
+
+	; exiting
+	call	VSyncFree
+	call	KeyboardFree
+	call	WindowFree
+
+	call	FreeTopMem
+
+	call	MouseFree
+
+	clr	R0
+	.exit
+
+	; DK BK3DT1RAW..DK BK3DT8RAW
+TxtFn1:	.word	015270,007131,016077,070277
+
+READdata:
+	.byte	0		; channel number
+	.byte	10		; function number
+	.word	0		; block number to read
+	.word	C_VADDR		; address to load a file
+	.word	10000		; file size / 2 (8Kb)
+	.word	0
+LOOKUPdata:
+	.byte	0		; channel number
+	.byte	1		; function number
+	.word	TxtFn1		; pointer to the text string
+
+LoadStatus:
+	.word	0
+
+GetPgOffs:
+	ash	#5.,R0
+	add	MemoryPointer,R0
+	return
+
+LoadTextures:
+	clr	LoadStatus
+
+	.print	#MsgLoadTxts
+
+	clr	r0
+
+	mov	#016077,TxtFn1+4
+	movb	#'1,MsgTxtFn+5
+
+3$:	mov	r0,-(sp)
+
+	.print	#MsgTxtFn
+
+	mov	#LOOKUPdata,R0
+	emt	375		; open file
+	bcc	1$
+	mov	PageRegisters,StartRegister
+	inc	LoadStatus
+	.print	#MsgNoFile
+	tst	(sp)+
+	return
+1$:	
+	mov	(SP),R0		; 0..7
+	call	GetPgOffs
+	mov	R0,StartRegister
+
+	mov	#READdata,R0
+	emt	375		; read file
+	bcc	2$
+	mov	PageRegisters,StartRegister
+	inc	LoadStatus
+	.print	#MsgReadError
+	tst	(sp)+
+	return
+2$:
+	
+	mov	#6,r0
+	swab	r0
+	emt	374		; close
+
+	incb	MsgTxtFn+5
+	inc	TxtFn1+4
+
+	mov	(sp)+,r0
+
+	inc	r0
+	cmp	r0,#8.
+	bne	3$
+
+	mov	PageRegisters,StartRegister
+	
+	return
+
+MsgHello:
+	.asciz	"Neon port of BK3D.ENGINE"
+MsgMouse:
+	.asciz	"Mouse detected"
+MsgLoadTxts:
+	.asciz	"Loading textures"
+MsgNoFile:
+	.asciz	"File not found"
+MsgReadError:
+	.asciz	"Read error"
+MsgTxtFn:
+	.asciz	"BK3DT1.RAW"
+MsgNoPalette:
+	.asciz	"No Vm8 palette available"
+	.even
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Utils 
+; //////////////////////////////////////////////////////////////////////////////
+
+; R1 - number to print
+PrintOctal:
+	; 1st bit
+	clr	R0
+	mov	#6, R3
+	br	22$
+20$:	; get number
+	clr	R0
+	rol	R1
+	rol	R0
+	rol	R1
+	rol	R0
+22$:	rol	R1
+	rol	R0
+	add	#'0, R0
+	.ttyou
+	sob	R3, 20$
+	mov	#40, R0
+	.ttyou
+	return
+
+; R5 - process dsc
+; return: R1 - num
+GetProcessNum:
+	mov	#PdPtr, R2
+	clr	R1
+10$:	mfhlt	R2
+	inc	R1
+	mov	R0, R2
+	beq	20$
+	add	#P.DSucc, R2
+	cmp	R0, R5
+	bne	10$
+	br	30$
+20$:	clr	R1
+30$:	return
+
+Scrn1:
+	mov	R0,-(SP)
+
+	mov	#8.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister
+
+	mov	#9.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister+2
+
+	mov	(SP)+,R0
+
+	return
+
+ScrnM:
+	mov	R0,-(SP)
+
+	mov	#9.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister
+
+	mov	#10.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister+2
+
+	mov	(SP)+,R0
+
+	return
+
+Scrn2:
+	mov	R0,-(SP)
+
+	mov	#10.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister
+
+	mov	#11.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister+2
+
+	mov	(SP)+,R0
+
+	return
+
+SetTxt:
+	call	GetPgOffs
+	mov	R0,StartRegister
+
+	return
+
+SetPrecalcs:
+	mov	R0,-(SP)
+
+	mov	#12.,R0
+SetPrDO:
+	call	GetPgOffs
+	mov	R0,StartRegister+2
+
+	mov	(SP)+,R0
+
+	return
+
+SetPrecA:
+	mov	R0,-(SP)
+	mov	#13.,R0
+	br	SetPrDO
+SetPrecB:
+	mov	R0,-(SP)
+	mov	#14.,R0
+	br	SetPrDO
+SetPrecC:
+	mov	R0,-(SP)
+	mov	#15.,R0
+	br	SetPrDO
+
+ClearScreen:
+	mov	R0,-(SP)
+	mov	R1,-(SP)
+	mov	R2,-(SP)
+
+	mov	#172364,R2
+
+        call	Scrn1
+
+	mov	#C_VADDR,R0
+	mov	#C_HALF1,R1
+	mov	R2,(R0)+
+	sob	R1,.-2
+
+	call	Scrn2
+
+	mov	#C_VADDR,R0
+	mov	#C_HALF2,R1
+	mov	R2,(R0)+
+	sob	R1,.-2
+
+	mov	(SP)+,R2
+	mov	(SP)+,R1
+	mov	(SP)+,R0
+	
+	return 
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Memory
+; //////////////////////////////////////////////////////////////////////////////
+
+RamTop:		.word	0			; top addr of available RAM
+MsgSettop:	.asciz	"? can't use all memory (.settop failed)"
+MsgNoMemory:	.asciz	"? can't allocate memory up to 120000"
+MsgNoTopMemory:	.asciz	"? can't allocate top memory up to 128Kb"
+		.even 
+
+GetAllMem:
+	mov	@#54, R0			; addr of RMON
+	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
+	tst	-(R0)				; -2 bytes
+	.setto
+	bcc	10$
+	.print	#MsgSettop
+	.exit
+10$:	mov	R0, RamTop
+	cmp	R0, #120000
+	bhis	20$
+	.print	#MsgNoMemory
+	.exit
+20$:	; and clear it
+	mov	#CpuEnd, R0
+	mov	RamTop, R3
+	sub	R0, R3
+	clrb	(R0)+
+	sob	R3, .-2
+	return
+
+MemoryPointer:
+	.word	0
+PageRegisters:
+	.blkw	NumOfRegisters
+
+GetTopMem:
+	mov	#Blocks,R3
+	mov	R3,@#Get8kb
+	nop
+	bcc	1$
+	.print	#MsgNoTopMemory
+	.exit
+1$:
+	mov	#MemoryPointer,R1
+	mov	R0,(R1)+
+
+	; save memory manager register values
+	mov	#StartRegister,R2
+	mov	#NumOfRegisters,R3
+	mov	(R2)+,(R1)+
+	sob	R3,.-2
+
+	return
+
+FreeTopMem:
+	mov	#MemoryPointer,R1
+	mov	(R1)+,R0
+	mov	#Blocks,@#Free8kb
+	nop
+	mov	#StartRegister,R2
+	mov	#NumOfRegisters,R3
+	mov	(R1)+,(R2)+
+	sob	R3,.-2
+
+	return
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Video Sync and Game thread
+; //////////////////////////////////////////////////////////////////////////////
+
+BkwScrn:	.word	0
+Bkw100:		.word	0
+;VsyLock:	.word	0
+
+VsyncInit:
+	mfhlt	#V.Scrn
+	mov	R0, BkwScrn
+	mov	#7126, R0
+	mthlt	#V.Scrn
+	mov	@#100, Bkw100
+	mov	#VsyncProc, @#100
+;	clr	VsyLock
+	return
+
+VSyncFree:
+	mov	Bkw100, @#100
+	MOV	BkwScrn, R0
+	mthlt	#V.Scrn
+	return
+
+; (!) save/restore registers, it's not a separate process
+VsyncProc:
+;	tst	VsyLock
+;	bne	100$
+
+;	inc	VsyLock
+
+;99$:
+	call	MouseProc
+	call	N100
+	call	SoundProc
+
+;	clr	VsyLock
+
+;100$:
+	rti
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Window
+; //////////////////////////////////////////////////////////////////////////////
+
+WindowInit:
+	; try to create VM8 palette
+	mov	PaletteConfig+2, R0		; for checking later
+	mov	#PaletteConfig, @#177530	; create own palette
+	nop					; nop somehow is necessary (!)
+	cmp	R0, PaletteConfig+2		; allocated?
+	bne	10$
+	; no palette given - exiting
+	.print	#MsgNoPalette
+	call	FreeTopMem
+	.exit
+10$:	; palette allocated
+
+	; 25 = PLSAVx save palette
+	; 23 = PLMODx modify palette
+	; trying to make 'active view' badges be black-colored (they are not needed in full-screen app)
+	mov	#25, SaveVm1Palette		; .. just in case
+	mov	#SaveVm1Palette, @#177530	; save vm1 #0 palette
+	nop
+	movb	SaveVm1Palette+4.+0., OldVm1N0Color+1	; high byte
+	movb	SaveVm1Palette+4.+16., OldVm1N0Color+0	; low byte
+	movb	SaveVm1Palette+4.+15., OldVm1N15Color+1	; high byte
+	movb	SaveVm1Palette+4.+31., OldVm1N15Color+0	; low byte
+
+	; modify it
+;	clrb	SaveVm1Palette+4.+15.		; clear them to black color
+;	clrb	SaveVm1Palette+4.+31.
+
+	movb #3,SaveVm1Palette+4.+0.
+	movb #7,SaveVm1Palette+4.+16.
+	movb #3,SaveVm1Palette+4.+15.
+	movb #7,SaveVm1Palette+4.+31.
+
+	mov	#23, SaveVm1Palette		; 23 - modify vm1 #0 palette
+	mov	#SaveVm1Palette, @#177530
+	nop	
+
+	mov	#8.,R0
+	call	GetPgOffs
+	mov	R0,StartRegister
+
+	; create area
+	mov	PaletteConfig+2, AreaConfig+10	; put created palette # to area config 
+	mov	#AreaConfig, @#177530		; create area
+	nop
+
+	mov	PageRegisters,StartRegister
+
+	; create view
+	mov	AreaConfig+2, ViewConfig+4	; put created area# to view config
+	mov	#ViewConfig, @#177530		; create view
+	nop
+
+	mov	ViewConfig+2,SetView+2
+
+	; create view 2
+	mov	AreaConfig+2, ViewConfig2+4	; put created area# to view config
+	mov	#ViewConfig2, @#177530		; create view
+	nop
+
+	mov	ViewConfig2+2,SetView2+2
+
+	; create view 3
+	mov	AreaConfig+2, ViewConfig3+4	; put created area# to view config
+	mov	#ViewConfig3, @#177530		; create view
+	nop
+
+	mov	ViewConfig3+2,SetView3+2
+
+	return
+
+SetTopView1:
+	mov	#SetView, @#177530
+	nop
+	return
+
+SetTopView2:
+	mov	#SetView2, @#177530
+	nop
+	return
+
+SetTopView3:
+	mov	#SetView3, @#177530
+	nop
+	return
+
+WindowFree:
+	; free window and palette
+	mov	#2, AreaConfig			; command "free area"
+	mov	#AreaConfig, @#177530		; free area and its view
+	nop
+	mov	#21, PaletteConfig		; command "free palette"
+	mov	#PaletteConfig, @#177530	; free palette
+	nop
+	; restore previous vm1 #0 palette color value
+	movb	OldVm1N0Color+1, SaveVm1Palette+4.+0.
+	movb	OldVm1N0Color+0, SaveVm1Palette+4.+16.
+	movb	OldVm1N15Color+1, SaveVm1Palette+4.+15.
+	movb	OldVm1N15Color+0, SaveVm1Palette+4.+31.
+	mov	#23, SaveVm1Palette		; modify vm1 #0 palette
+	mov	#SaveVm1Palette, @#177530
+	nop
+	return
+
+OldVm1N0Color:	.word	0			; old #0 color to save it and restore after exit from program
+OldVm1N15Color:	.word	0			; old #15 color to save it and restore after exit from program
+SaveVm1Palette:	.word	25			; 25 - save palette
+		.byte	0			; 1-bit for pixel
+		.byte	0			; palette #0
+		.blkw	16.			; 32 bytes of palette
+
+; screen buffer (so called "area") description
+AreaConfig:	.word	46			; 46 - command "create and register area"
+		.word	C_VADDR			; address of screen buffer (returns area id here after #46 command)
+		.word	VYsize			; rows count
+		.word	VXsize			; bytes count in row
+		; palette word 
+		.byte	7			; 256 colors
+		.byte	0			; palette #
+
+; window (so called "view") description
+ViewConfig:	.word	4			; 4 - command "create view"
+		.word	0			; view id
+		.word	0			; area id
+		.word	0			; vertical content offset
+		.word	0			; horisontal content offset
+		; these four words will be anyway corrected by window manager program - so they are maxed here
+		.word	0.			; top position (row)
+		.word	299.			; bottom position (row)
+		.word	0.			; left position (column, 32-pix)
+		.word	25.			; right position (column)
+		.byte	1,0			; scale x,y (0 = *4, 1 = *2, 2 = *1)
+
+; window (so called "view") description
+ViewConfig2:	.word	4			; 4 - command "create view"
+		.word	0			; view id
+		.word	0			; area id
+		.word	0			; vertical content offset
+		.word	0			; horisontal content offset
+		; these four words will be anyway corrected by window manager program - so they are maxed here
+		.word	0.			; top position (row)
+		.word	299.			; bottom position (row)
+		.word	0.			; left position (column, 32-pix)
+		.word	25.			; right position (column)
+		.byte	2,1			; scale x,y (0 = *4, 1 = *2, 2 = *1)
+
+; window (so called "view") description
+ViewConfig3:	.word	4			; 4 - command "create view"
+		.word	0			; view id
+		.word	0			; area id
+		.word	0			; vertical content offset
+		.word	104.			; horisontal content offset
+		; these four words will be anyway corrected by window manager program - so they are maxed here
+		.word	0.			; top position (row)
+		.word	127.			; bottom position (row)
+		.word	0.			; left position (column, 32-pix)
+		.word	7.			; right position (column)
+		.byte	2,1			; scale x,y (0 = *4, 1 = *2, 2 = *1)
+
+SetView:	.word	10.			; set top
+		.word	0.			; view id
+
+SetView2:	.word	10.			; set top
+		.word	0.			; view id
+
+SetView3:	.word	10.			; set top
+		.word	0.			; view id
+
+; palette configuration
+PaletteConfig:	.word	17			; command "create palette"
+		.byte	7			; 256 colors
+		.byte	0			; palette #
+PaletteBuf:
+	.BYTE 003, 000, 000, 044, 044, 111, 111, 155, 155, 222, 222, 266, 266, 333, 333, 377
+	.BYTE 000, 000, 000, 004, 044, 044, 044, 050, 050, 110, 114, 114, 114, 114, 160, 160
+	.BYTE 000, 000, 000, 044, 044, 045, 045, 111, 111, 111, 156, 156, 156, 156, 222, 223
+	.BYTE 000, 000, 000, 000, 044, 044, 044, 044, 044, 110, 110, 110, 110, 154, 154, 000
+	.BYTE 000, 000, 000, 004, 004, 004, 004, 010, 010, 010, 010, 014, 014, 014, 014, 044
+	.BYTE 044, 050, 050, 110, 110, 114, 114, 120, 120, 120, 164, 164, 004, 004, 004, 050
+	.BYTE 050, 054, 054, 054, 120, 120, 164, 164, 230, 270, 334, 374, 000, 000, 044, 044
+	.BYTE 050, 050, 054, 114, 114, 121, 161, 165, 225, 231, 272, 276, 226, 162, 162, 161
+	.BYTE 115, 115, 115, 051, 051, 050, 050, 004, 004, 004, 000, 000, 166, 166, 126, 121
+	.BYTE 121, 115, 115, 055, 050, 050, 050, 004, 004, 332, 272, 266, 226, 225, 161, 161
+	.BYTE 155, 115, 110, 050, 050, 044, 004, 000, 215, 155, 151, 151, 151, 111, 105, 104
+	.BYTE 104, 044, 044, 040, 040, 000, 000, 000, 334, 330, 270, 264, 224, 220, 160, 154
+	.BYTE 114, 110, 050, 044, 004, 000, 003, 003, 003, 003, 046, 046, 046, 046, 045, 045
+	.BYTE 045, 045, 044, 000, 000, 004, 004, 010, 010, 014, 014, 020, 064, 064, 130, 170
+	.BYTE 170, 235, 275, 275, 336, 164, 224, 330, 375, 257, 367, 373, 020, 024, 030, 034
+	.BYTE 376, 377, 377, 121, 000, 034, 374, 340, 343, 003, 037, 044, 111, 222, 333, 377
+
+	.BYTE 007, 151, 373, 155, 377, 111, 333, 115, 337, 111, 333, 115, 337, 111, 333, 115
+	.BYTE 110, 161, 271, 301, 012, 122, 172, 253, 323, 033, 103, 213, 263, 374, 044, 154
+	.BYTE 111, 223, 334, 046, 157, 261, 372, 044, 156, 337, 001, 112, 224, 335, 007, 111
+	.BYTE 040, 110, 220, 330, 000, 110, 150, 260, 370, 040, 111, 221, 331, 001, 111, 000
+	.BYTE 010, 020, 030, 000, 010, 020, 030, 000, 010, 020, 030, 000, 010, 020, 030, 110
+	.BYTE 160, 240, 310, 020, 070, 111, 221, 242, 312, 363, 003, 054, 200, 251, 371, 012
+	.BYTE 122, 143, 264, 335, 016, 176, 015, 275, 155, 134, 113, 233, 050, 230, 011, 122
+	.BYTE 203, 264, 345, 056, 237, 350, 132, 303, 065, 207, 021, 202, 114, 372, 220, 057
+	.BYTE 335, 224, 112, 371, 260, 156, 045, 364, 253, 202, 121, 050, 233, 111, 340, 266
+	.BYTE 155, 133, 022, 311, 237, 126, 005, 374, 253, 037, 214, 033, 251, 047, 325, 143
+	.BYTE 032, 250, 137, 366, 204, 123, 342, 231, 017, 305, 234, 123, 012, 301, 230, 127
+	.BYTE 016, 315, 204, 133, 022, 312, 211, 100, 352, 132, 251, 071, 251, 030, 210, 030
+	.BYTE 210, 070, 250, 130, 350, 170, 007, 115, 223, 331, 007, 115, 153, 151, 157, 155
+	.BYTE 153, 111, 007, 335, 223, 010, 030, 050, 070, 150, 270, 360, 041, 221, 103, 015
+	.BYTE 377, 241, 103, 356, 221, 307, 326, 006, 002, 377, 057, 367, 010, 020, 020, 030
+	.BYTE 232, 270, 377, 332, 000, 030, 370, 340, 347, 007, 037, 004, 000, 000, 000, 377
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Keyboard
+; //////////////////////////////////////////////////////////////////////////////
+
+KbdSave:	.word	0, 0
+KbdPrio:	.word	0
+KbdProcDsc:	.word	0
+KbdProcNum:	.word	0
+KeysBuffer:	.blkw	8.
+
+KeyCurrent:	.word	0
+
+KeysBegin:
+
+KeyAp2:		.word	0, 00., ^B0000000010000000, ^B1111111101111111	; 0
+KeyUp:		.word	0, 12., ^B0000000000010000, ^B1111111111101111	; 6
+KeyDown:	.word	0, 10., ^B0000000000010000, ^B1111111111101111	; 5
+KeyLeft:	.word	0, 08., ^B0000000000100000, ^B1111111111011111	; 4
+KeyRight:	.word	0, 10., ^B0000000000001000, ^B1111111111110111	; 5
+KeySpace:	.word	0, 08., ^B0000000000001000, ^B1111111111110111	; 4
+KeyShift:	.word	0, 08., ^B0000000001000000, ^B1111111110111111	; 4
+KeyTab:		.word	0, 02., ^B0000000010000000, ^B1111111101111111	; 1
+KeyEnter:	.word	0, 12., ^B0000000000001000, ^B1111111111110111	; 6
+                                                      
+KeyJ:		.word	0, 02., ^B0000000000000001, ^B1111111111111110	; 1
+KeyF:		.word	0, 04., ^B0000000000000001, ^B1111111111111110	; 2
+KeyW:		.word	0, 06., ^B0000000000000100, ^B1111111111111011	; 3
+KeyC:		.word	0, 04., ^B0000000000000010, ^B1111111111111101	; 2
+KeyY:		.word	0, 06., ^B0000000000000010, ^B1111111111111100	; 3
+                                                      
+KeyP:		.word	0, 04., ^B0000000000001000, ^B1111111111110111	; 2
+                                                      
+KeyQ:		.word	0, 06., ^B0000000000000001, ^B1111111111111100	; 3
+KeyA:		.word	0, 06., ^B0000000000000011, ^B1111111111111100	; 3
+KeyD:		.word	0, 04., ^B0000000000000110, ^B1111111111111001	; 2
+KeyS:		.word	0, 08., ^B0000000000000100, ^B1111111111111011	; 4
+
+KeysEnd:
+
+KeyboardInit:
+	; save some keyboard-related values? and set priority?
+	mfhlt	#V.Kbd
+	mov	R0, KbdSave
+	mfhlt	#V.Kbd+2
+	mov	R0, KbdSave+2
+	mov	KbdSave, R1
+	add	#P.Pri, R1
+	mfhlt	R1
+	mov	R0, KbdPrio
+	mov	KbdSave, R0
+	himpri	#-1
+	; new keyboard process
+       	newromp	#KeyboardProc
+	mov	R0, KbdProcDsc
+	mov	R0, R5
+	call	GetProcessNum
+	mov	R1, KbdProcNum 
+	return
+
+KeyboardFree:
+	; stop keyboard process
+	mtps	#200
+	clr	R0
+	mthlt	#157700
+	kilproc	KbdProcNum
+	mov	KbdSave+2, R0
+	mthlt	#V.Kbd+2
+	mov	KbdSave, R0
+	mthlt	#V.Kbd
+	bic	#M.Kbd, @#PicMr
+	mov	KbdSave, R0
+	himpri	KbdPrio
+	mtps	#0
+	return
+
+ClearKeys:
+	mov	#KeysBegin, R0
+10$:	clr	(R0)+
+	cmp	(R0)+, (R0)+
+	tst	(R0)+
+	cmp	R0, #KeysEnd
+	blo	10$
+	return
+
+WaitKeypress:
+	clr	KeyCurrent
+	tst	KeyCurrent
+	beq	.-4
+	clr	KeyCurrent
+	return
+
+KeyboardProc:
+	setpri	#50000				; set priority of process
+	unpvec	#v.kbd				; unprotect keyboard vector
+	clr	R0
+	provec	#v.kbd				; protect keyboard vector
+10$:	waitint	#m.kbd				; wait keyboard inverrupt
+	mov	#120, @#KbdCsr			; ???
+	mov	#KeysBuffer, R4
+	mov	#8., R5
+20$:	mov	@#KbdBuf, (R4)+
+	sob	R5, 20$
+	mov	#302, @#KbdCsr
+	; check matrix
+	clr	KeyCurrent
+	mov	#KeysBegin, R5
+30$:	mov	2(R5), R0
+	mov	KeysBuffer(R0),R0
+	bic	6(R5),R0
+	cmp	4(R5),R0
+	bne	40$
+	inc	(R5)
+	inc	KeyCurrent
+	br	50$
+40$:	clr	(R5)
+50$:	add	#8., R5
+	cmp	R5, #KeysEnd
+	blo	30$
+	; again ...
+	br	10$
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Sound
+; //////////////////////////////////////////////////////////////////////////////
+
+SndBm:	.word	0
+
+SND_AMMO = 01.
+SND_FIRE = 02.
+SND_HIT  = 04.
+SND_MENU = 08.
+
+; sound process
+SoundProc:
+	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	R3, -(SP)
+	mov	R5, -(SP)
+	mov	SndBm, R5
+	beq	99$
+	mov	#SoundTable, R0
+	mov	#1, R1
+	mov	#4, R3
+20$:	bit	R1, R5
+	bne	40$
+	asl	R1
+	tst	(R0)+
+	sob	R3, 20$
+30$:	clr	SndBm
+99$:	mov	(SP)+, R5
+	mov	(SP)+, R3
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+40$:	mov	(R0), R0
+50$:	mov	(R0)+, R3
+	beq	30$
+	asr	 R3
+	;movb	#377, @#161032
+	MOV #64, @#161026
+	sob	R3, .
+	mov	(R0)+, R3
+	beq	30$
+	asr	R3
+	;movb	#000, @#161032
+	MOV #60, @#161026
+	sob	R3, .
+	br	50$
+
+; 1-take ammo, 2-fire, 4-hit, 8-menu tick
+SoundTable:
+	.word	       Sound001, Sound002, Sound004, Sound008
+
+.radix 10
+
+; bit 1 - take ammo - top priority
+Sound001:
+	.word	216, 184, 192, 184, 184, 192, 184, 192, 176, 200, 176, 208
+	.word	168, 216, 160, 224
+	.word	0
+
+; bit 2 - fire - priority #2
+Sound002:
+	.word	194, 79, 37, 26, 75, 25, 210
+	.word	41, 37, 76, 26, 52
+	.word	0
+
+; bit 3 - hit something - priority #3
+Sound004:
+	.word	81, 65, 87, 65, 146, 59, 66, 61, 102, 61, 88, 66, 86, 67, 100, 40
+	.word	488, 2352, 1432, 1096, 544, 520, 528, 496, 1160, 520, 536, 363
+	.word	0
+
+; bit 8 - menu ticks - least priority
+Sound008:
+	.word	150, 20, 140, 30, 130, 40
+	.word	0
+
+.radix	8
+
+; //////////////////////////////////////////////////////////////////////////////
+; // mouse
+; //////////////////////////////////////////////////////////////////////////////
+
+MousePrio:
+	.word	0
+MouseSave:
+	.word	0
+
+MouseInit:
+	;
+	; Disable Mouse Process
+	clr	MouseSave
+	mfhlt	#156200
+	mov	R0, R1
+	beq	10$
+	add	#6, R1
+	mfhlt	R1
+	;
+	mov	R0, MouseSave
+	mov	R0, R1
+	add	#P.Pri, R1
+	mfhlt	R1
+	mov	R0, MousePrio
+	mov	MouseSave, R0
+	himpri	#-1
+	;
+10$:
+	;
+	; mouse init
+	call	mtst
+	;
+	return
+
+MouseFree:
+	;
+	mov	MouseSave, R0
+	beq	10$
+	himpri	MousePrio
+10$:
+	;
+	return
+
+MSST:	.word	0
+mflg:	.word	0
+
+mtst:
+	mov	PICMR,	-(sp)
+	mov	#377,	PICMR	;disable int's
+	call	mouse
+	call	mouse
+	mov	(sp)+,	PICMR	;restore picmr
+	mov	#m.tio,	mflg
+	add	r0,	r1
+	bcc	10$
+	clr	mflg
+10$:
+	clr	MSST
+	return
+
+;------------------------------
+mouse:
+.macro delay n
+.if ne msx
+	mov	#n,	r0
+	sob	r0,	.
+.endc
+.endm
+
+nnn1	= 12.
+nnn2	=  2.
+stb	= 200
+
+	mov	#ppia,	r5
+	mov	#ppic,	r4
+	mov	#stb,	r3		
+
+	bis	r3,	(r5)
+	DELAY	nnn1
+	mov	(r4),	r0	;yh
+;----------------------------------------
+	xor	r3,	(r5)
+.rept	4			;
+	rolb	r0		;
+	rol	r1		;
+.endr	
+	DELAY	nnn2		;
+	mov	(r4),	r0	;yl
+;----------------------------------------
+	xor	r3,	(r5)	;
+.rept	4			;
+	rolb	r0		;
+	rol	r1		;
+.endr
+	DELAY	nnn2		;
+	mov	(r4),	r0	;xh
+;----------------------------------------
+	xor	r3,	(r5)
+.rept	4			;
+	rolb	r0		;
+	rol	r1		;
+.endr				;
+	DELAY	nnn2		
+	mov	(r4),	r0	;xl
+;----------------------------------------
+.rept	4			;
+	rolb	r0		;
+	rol	r1		;
+.endr				;
+	movb	r1,	r0	;dy
+	swab	r1		;
+	movb	r1,	r1	;dx
+	bis	#140,	(r5)	;
+	mov	(r5),	r2	;key
+	com	r2
+
+	return
+
+MouseProc:
+	tst	mflg
+	beq	10$
+
+	mov	r0,-(sp)
+	mov	r1,-(sp)
+	mov	r2,-(sp)
+	mov	r3,-(sp)
+	mov	r4,-(sp)
+	mov	r5,-(sp)
+
+	mov	PICMR,	-(sp)
+	mov	#377,	PICMR	;disable int's
+
+	call	mouse
+
+	mov	(sp)+,	PICMR	;restore picmr
+
+	clr	r5		;new MSST
+	mov	MSST,r4		;prev.MSST
+
+	bit	#40,r2
+	beq	11$
+	bis	#256.,r5
+	bit	#256.,r4
+	bne	12$
+	inc	KeySpace
+	br	12$
+11$:	bit	#256.,r4	
+	beq	12$
+	clr	KeySpace
+12$:
+	bit	#100,r2
+	beq	13$
+	bis	#1.,r5
+	bit	#1.,r4
+	bne	14$
+	inc	KeyShift
+	br	14$
+13$:	bit	#1.,r4
+	beq	14$
+	clr	KeyShift
+14$:	
+
+	; r0=-127..127 -> clip to +/-63.
+	; r1=-127..127 -> clip to +/-63.
+	cmp	r0,#64.
+	blt	15$
+	mov	#63.,r0
+15$:
+	cmp	r1,#64.
+	blt	16$
+	mov	#63.,r1
+16$:
+	cmp	r0,#-64.
+	bgt	17$
+	mov	#-63.,r0
+17$:
+	cmp	r1,#-64.
+	bgt	18$
+	mov	#-63.,r1
+18$:
+
+	neg	r1
+	bic	#177600,r0
+	asl	r0
+	swab	r0
+	bic	#177600,r1
+	asl	r1
+	bis	r0,r5
+	bis	r1,r5
+
+	mov	r5,MSST
+
+	mov	(sp)+,r5
+	mov	(sp)+,r4
+	mov	(sp)+,r3
+	mov	(sp)+,r2
+	mov	(sp)+,r1
+	mov	(sp)+,r0
+
+10$:
+	return
+
+; //////////////////////////////////////////////////////////////////////////////
+; // some sounds code is here
+; //////////////////////////////////////////////////////////////////////////////
+
+SND:             
+1$:	TSTB	@#176240
+	BPL	1$
+	MOVB	(R0)+,@#176242
+	SOB	R1,1$  
+	RETURN 
+
+SUN:	BIT	#40,@#176240
+	BEQ	6$
+	MOV	#SNDB,R0
+	MOV	(R0)+,R1 
+5$:	TSTB	@#176240
+	BPL	5$
+	MOVB	(R0)+,@#176242
+	SOB	R1,5$  
+6$:	RETURN          
+
+GONG:	MOV	#SNDC,R0
+	MOV	(R0)+,R1
+	CALL	SND 
+	RETURN
+
+SNDB:	.WORD	SNDBLN
+	.BYTE	000,210,201,020,203,012,202,003,200,003,014,004,014,005,001,023
+	.BYTE	015,045,000,211,000,212,000,000 
+	SNDBLN=.-SNDB-2
+	.EVEN
+
+SNDC:	.WORD	SNDCLN
+	.BYTE	000,210,201,020,203,074,202,001,200,001,001,007,007,017,007,017
+	.BYTE	000,211,201,010,203,050,200,001,202,003,001,007,007,027,000,212
+	.BYTE	000,000 
+	SNDCLN=.-SNDC-2
+	.EVEN
+
+; //////////////////////////////////////////////////////////////////////////////
+; // game code is here
+; //////////////////////////////////////////////////////////////////////////////
+
+	@include fnt35.mac
+	@include cmn35.mac	
+	@include ar35.mac
+	@include s35.mac
+	@include tabs35.mac
+	@include util35.mac
+	@include wl35.mac
+	@include mn35.mac
+	@include lg35.mac
+	@include txt35.mac
+	@include menu35.mac
+	.even
+
+CpuEnd:
+
+; //////////////////////////////////////////////////////////////////////////////
+; // game virtual screen
+; //////////////////////////////////////////////////////////////////////////////
+
+MNVSC:	.blkb VXsize*16.	; VXsize/2*32
+	.even
+
+	.end	Start
