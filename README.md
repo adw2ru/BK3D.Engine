@@ -1,6 +1,10 @@
 # BK3D.Engine
-Evolution of BK3D.Arena game engine
+Evolution of BK3D.Arena game engine.
 
-Contains versions for regular BK0010/BK0011M and for SMK-512, AZBK controllers.
-
-And now also port for MS0511 aka UKNC School computer.
+Contains versions for:
+* BK0010(-01), BK0011M
+* SMK512
+* AZBK
+* MS0511 (UKNC)
+* SOUZ-NEON (PK11/16) CLASSIC VERSION
+* SOUZ-NEON (PK11/16) FULLY TEXTURED VERSION
