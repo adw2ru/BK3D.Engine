@@ -1,24 +1,37 @@
-	;
-	VSCR=C_VADDR		; SCREEN ADDRESS
-	SCOREP=32416		; SCORE	POSITION REL.
-	AMMOP=32322		; AMMO POSITION REL.
-	FPSP=32362		;
-;	MSGLN=C_VADDR+4500	; MESSAGES POSITION
-	;
-	MNRS=10.		; SIZEOF(ACTOR_RECORD)
-	HITRAD=20.		; HIT RADIUS(ONE CELL EDGE IS 64)
-	SCLIM=25.		; SCORE	LIMIT
-	;
-	; GAME STATES
-	GSEXIT=0.		; EXIT
-	GSGAME=1.		; GAME RUNNING
-	GSPAUS=2.		; PAUSE
-	GSPLWN=4.		; PLAYER WON
-	GSHTWN=8.		; HUNTERS WON
-	;
-	;
-	DIVS=100000		; 224. (340)
-	WRC=100340		; 3296.	(6340)
-	FLRC=106700		; 130. (202)
-	PSCTAB=107102		; 322. (502)
-	;
+;
+; //////////////////////////////////////////////////////////////////////////////	
+; // POSITIONS 
+; //////////////////////////////////////////////////////////////////////////////
+;
+VSCR=C_VADDR		; SCREEN ADDRESS
+SCOREP=32416		; SCORE	POSITION REL.
+AMMOP=32322		; AMMO POSITION REL.
+FPSP=32362		;
+;MSGLN=C_VADDR+4500	; MESSAGES POSITION
+;
+MNRS=10.		; SIZEOF(ACTOR_RECORD)
+HITRAD=20.		; HIT RADIUS(ONE CELL EDGE IS 64)
+SCLIM=25.		; SCORE	LIMIT
+;
+;
+DIVS=100000		; 224. (340)
+WRC=100340		; 3296.	(6340)
+FLRC=106700		; 130. (202)
+PSCTAB=107102		; 322. (502)
+;
+; //////////////////////////////////////////////////////////////////////////////	
+; // GAME STATES 
+; //////////////////////////////////////////////////////////////////////////////
+;
+GSEXIT=0.		; EXIT
+GSGAME=1.		; GAME RUNNING
+GSPAUS=2.		; PAUSE
+GSPLWN=4.		; PLAYER WON
+GSHTWN=8.		; HUNTERS WON
+;
+; //////////////////////////////////////////////////////////////////////////////	
+; // GAME DEFINITIONS
+; //////////////////////////////////////////////////////////////////////////////
+;
+HSTYLE=0		; HUNTER STYLE OLD(1) OR NEW(0)
+;

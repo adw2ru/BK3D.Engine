@@ -415,6 +415,24 @@ DOUT:	CLR R5
 	SUB #10.,R1
 	BCS 1$
 	INC R5
+	SUB #10.,R1
+	BCS 1$
+	INC R5
+	SUB #10.,R1
+	BCS 1$
+	INC R5
+	SUB #10.,R1
+	BCS 1$
+	INC R5
+	SUB #10.,R1
+	BCS 1$
+	INC R5
+	SUB #10.,R1
+	BCS 1$
+	INC R5
+	SUB #10.,R1
+	BCS 1$
+	INC R5
 	BR 2$
 1$:	ADD #10.,R1
 2$:	MOV R5,R2
