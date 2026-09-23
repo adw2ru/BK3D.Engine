@@ -19,6 +19,10 @@ if %ERRORLEVEL% NEQ 0 ( exit /b )
 ..\scripts\rt11dsk d .\release\bk3da.dsk bk3dt7.raw >NUL
 ..\scripts\rt11dsk d .\release\bk3da.dsk bk3dt8.raw >NUL
 
+..\scripts\rt11dsk d .\release\bk3da.dsk bk3ds1.raw >NUL
+..\scripts\rt11dsk d .\release\bk3da.dsk bk3ds2.raw >NUL
+..\scripts\rt11dsk d .\release\bk3da.dsk bk3ds3.raw >NUL
+
 ..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3dt1.raw >NUL
 ..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3dt2.raw >NUL
 ..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3dt3.raw >NUL
@@ -27,6 +31,10 @@ if %ERRORLEVEL% NEQ 0 ( exit /b )
 ..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3dt6.raw >NUL
 ..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3dt7.raw >NUL
 ..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3dt8.raw >NUL
+
+..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3ds1.raw >NUL
+..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3ds2.raw >NUL
+..\scripts\rt11dsk a .\release\bk3da.dsk .\release\bk3ds3.raw >NUL
 
 del _acpu.mac
 rem del serial.log

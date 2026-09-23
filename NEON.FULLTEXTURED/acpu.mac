@@ -13,24 +13,20 @@
 	.asect
 	.=1000
 	
-	msx		= 0		; msx (1) or Slavic (0) mouse
+	msx		= 1		; msx (1) or Slavic (0) mouse
 
 	Get8kb		= 174200	; allocate some 8kb blocks of high memory
 	Free8kb		= 174202	; release some 8kb blocks of memory for the current process
-	Blocks		= 16.		; number of 8kb blocks
+	Blocks		= 24.		; number of 8kb blocks
 	; Blocks layout:
-	; 0..7: Textures
-	; 8..11: Screen
-	; ...
+	;  0, 1, 2, 3, 4, 5, 6, 7	: Textures
+	;  8, 9,10,11,12,13,14,15	: Screen (256x256x256=64k)
+	; 16,17,18,19			: Precalcs
+	; 20,21,22			; Sprites
+	; 23				; Video Tables
 
 	StartRegister	= 161226	; 161220=000000, 161222=020000, 161224=040000, 161226=060000, 161230=100000
 	NumOfRegisters	= 2		; (2 for half of screen) or (1 for textures and 1 for unroll code)
-
-	VXsize = 208.
-	VYsize = 150.
-
-	C_HALF1 = 40000/2		; VXsize*VYsize/2
-	C_HALF2 = 34740/2
 
 	C_VADDR	 = 60000
 
@@ -61,13 +57,13 @@ Start:	mov	#1000, SP		; just in case
 	.print	#MsgMouse
 10$:
 
+	call	InitPrecs
+
 	call	ClearScreen
 
 	call	WindowInit
 	call	KeyboardInit
 	call	VSyncInit
-
-	call	GONG
 
 	call	GStart
 
@@ -83,8 +79,25 @@ Start:	mov	#1000, SP		; just in case
 	clr	R0
 	.exit
 
-	; DK BK3DT1RAW..DK BK3DT8RAW
-TxtFn1:	.word	015270,007131,016077,070277
+TxtFn1:
+	; MSGTXT, PAGENUMBER, FILENAME (RADIX50)
+	; 1..7: DK BK3DT1RAW..DK BK3DT1RAW
+	; 20,21,22: DK BK3DS1RAW..DK BK3DS3RAW
+	.word	52061,0.,015270,007131,016077,070277
+	.word	52062,1.,015270,007131,016100,070277
+	.word	52063,2.,015270,007131,016101,070277
+	.word	52064,3.,015270,007131,016102,070277
+	.word	52065,4.,015270,007131,016103,070277
+	.word	52066,5.,015270,007131,016104,070277
+	.word	52067,6.,015270,007131,016105,070277
+	.word	52070,7.,015270,007131,016106,070277
+	;
+	.word	51461,20.,015270,007131,016027,070277
+	.word	51462,21.,015270,007131,016030,070277
+	.word	51463,22.,015270,007131,016031,070277
+	;
+	.word	0
+
 
 READdata:
 	.byte	0		; channel number
@@ -106,21 +119,33 @@ GetPgOffs:
 	add	MemoryPointer,R0
 	return
 
+Addr32:
+	clr	R0		; in: R1=16 bit addr.
+	ashc	#3.,R0		; out: R0=MSB, R1=LSB 32bit addr.
+	asl	R0
+	mov	161220(R0),R0
+	bic	#140017,R0
+	ash	#-4.,R0
+	rol	R1
+	adc	R0
+	ashc	#-6.,R0
+	return
+
 LoadTextures:
 	clr	LoadStatus
 
 	.print	#MsgLoadTxts
 
-	clr	r0
-
-	mov	#016077,TxtFn1+4
-	movb	#'1,MsgTxtFn+5
+	mov	#TxtFn1,r0
 
 3$:	mov	r0,-(sp)
+	mov	(r0)+,MsgTxtFn+4
+	tst	(r0)+
+	mov	r0,LOOKUPdata+2
 
 	.print	#MsgTxtFn
 
-	mov	#LOOKUPdata,R0
+	mov	#LOOKUPdata,r0
 	emt	375		; open file
 	bcc	1$
 	mov	PageRegisters,StartRegister
@@ -129,11 +154,13 @@ LoadTextures:
 	tst	(sp)+
 	return
 1$:	
-	mov	(SP),R0		; 0..7
+	mov	(sp),r0
+	tst	(r0)+
+	mov	(r0),r0
 	call	GetPgOffs
-	mov	R0,StartRegister
+	mov	r0,StartRegister
 
-	mov	#READdata,R0
+	mov	#READdata,r0
 	emt	375		; read file
 	bcc	2$
 	mov	PageRegisters,StartRegister
@@ -142,18 +169,15 @@ LoadTextures:
 	tst	(sp)+
 	return
 2$:
-	
 	mov	#6,r0
 	swab	r0
 	emt	374		; close
 
-	incb	MsgTxtFn+5
-	inc	TxtFn1+4
-
 	mov	(sp)+,r0
 
-	inc	r0
-	cmp	r0,#8.
+	add	#12.,r0
+
+	tst	(r0)
 	bne	3$
 
 	mov	PageRegisters,StartRegister
@@ -165,11 +189,12 @@ MsgHello:
 MsgMouse:
 	.asciz	"Mouse detected"
 MsgLoadTxts:
-	.asciz	"Loading textures"
+	.asciz	"Loading data"
 MsgNoFile:
 	.asciz	"File not found"
 MsgReadError:
 	.asciz	"Read error"
+	.even
 MsgTxtFn:
 	.asciz	"BK3DT1.RAW"
 MsgNoPalette:
@@ -219,102 +244,87 @@ GetProcessNum:
 
 Scrn1:
 	mov	R0,-(SP)
-
 	mov	#8.,R0
-	call	GetPgOffs
-	mov	R0,StartRegister
-
-	mov	#9.,R0
-	call	GetPgOffs
-	mov	R0,StartRegister+2
-
-	mov	(SP)+,R0
-
-	return
-
-ScrnM:
+SetSDO:
 	mov	R0,-(SP)
-
-	mov	#9.,R0
 	call	GetPgOffs
 	mov	R0,StartRegister
-
-	mov	#10.,R0
+	mov	(SP)+,R0
+	inc	R0
 	call	GetPgOffs
 	mov	R0,StartRegister+2
-
 	mov	(SP)+,R0
-
 	return
 
 Scrn2:
 	mov	R0,-(SP)
-
 	mov	#10.,R0
-	call	GetPgOffs
-	mov	R0,StartRegister
+	br	SetSDO
 
-	mov	#11.,R0
-	call	GetPgOffs
-	mov	R0,StartRegister+2
-
-	mov	(SP)+,R0
-
-	return
-
-SetTxt:
-	call	GetPgOffs
-	mov	R0,StartRegister
-
-	return
-
-SetPrecalcs:
+Scrn3:
 	mov	R0,-(SP)
-
 	mov	#12.,R0
-SetPrDO:
-	call	GetPgOffs
-	mov	R0,StartRegister+2
+	br	SetSDO
 
-	mov	(SP)+,R0
-
-	return
-
-SetPrecA:
-	mov	R0,-(SP)
-	mov	#13.,R0
-	br	SetPrDO
-SetPrecB:
+Scrn4:
 	mov	R0,-(SP)
 	mov	#14.,R0
-	br	SetPrDO
-SetPrecC:
-	mov	R0,-(SP)
-	mov	#15.,R0
-	br	SetPrDO
+	br	SetSDO
+
+PrecT:	.word	0	; TABLES
+PrecA:	.word	0	; FL./CE.1
+PrecB:	.word	0	; FL./CE.2
+PrecC:	.word	0	; FL./CE.3
+
+.macro SETPRECT
+	mov	PrecT,StartRegister+2
+.endm
+.macro SETPRECA
+	mov	PrecA,StartRegister+2
+.endm
+.macro SETPRECB
+	mov	PrecB,StartRegister+2
+.endm
+.macro SETPRECC
+	mov	PrecC,StartRegister+2
+.endm
+
+InitPrecs:
+	mov	#16.,R0
+	call	GetPgOffs
+	mov	R0,PrecT
+	;
+	mov	#17.,R0
+	call	GetPgOffs
+	mov	R0,PrecA
+	;
+	mov	#18.,R0
+	call	GetPgOffs
+	mov	R0,PrecB
+	;
+	mov	#19.,R0
+	call	GetPgOffs
+	mov	R0,PrecC
+	;
+	return
 
 ClearScreen:
+        call	Scrn1
+	call	ClScDO
+        call	Scrn2
+	call	ClScDO
+        call	Scrn3
+	call	ClScDO
+        call	Scrn4
+ClScDO:
 	mov	R0,-(SP)
 	mov	R1,-(SP)
-	mov	R2,-(SP)
-
-	mov	#172364,R2
-
-        call	Scrn1
 
 	mov	#C_VADDR,R0
-	mov	#C_HALF1,R1
-	mov	R2,(R0)+
-	sob	R1,.-2
+	mov	#20000,R1
+1$:	mov	#172364,(R0)+	; 0xF4F4
+	sob	R1,1$
 
-	call	Scrn2
-
-	mov	#C_VADDR,R0
-	mov	#C_HALF2,R1
-	mov	R2,(R0)+
-	sob	R1,.-2
-
-	mov	(SP)+,R2
 	mov	(SP)+,R1
 	mov	(SP)+,R0
 	
@@ -393,7 +403,9 @@ FreeTopMem:
 
 BkwScrn:	.word	0
 Bkw100:		.word	0
-;VsyLock:	.word	0
+
+VSyncHappens:
+		.word	0
 
 VsyncInit:
 	mfhlt	#V.Scrn
@@ -402,7 +414,6 @@ VsyncInit:
 	mthlt	#V.Scrn
 	mov	@#100, Bkw100
 	mov	#VsyncProc, @#100
-;	clr	VsyLock
 	return
 
 VSyncFree:
@@ -413,26 +424,60 @@ VSyncFree:
 
 ; (!) save/restore registers, it's not a separate process
 VsyncProc:
-;	tst	VsyLock
-;	bne	100$
-
-;	inc	VsyLock
-
-;99$:
+	inc	VSyncHappens
 	call	MouseProc
 	call	N100
 	call	SoundProc
-
-;	clr	VsyLock
-
-;100$:
 	rti
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // Window
 ; //////////////////////////////////////////////////////////////////////////////
 
+VTABBackup:
+	.word	0,0
+VTAB1:
+	.word	0,0
+VTAB2:
+	.word	0,0
+VTAB3:
+	.word	0,0
+VRAM:
+	.word	0,0
+BtmPtr:						; used to make "shared" bottom lines
+	.word	0,0				; on both screens
+
+ActPage:
+	.word	0
+OffScPg1:
+	.word	0,0
+OffScPg2:
+	.word	0,0
+OffActPg:
+	.word	0,0
+
 WindowInit:
+	clr	ActPage				; Active Video Page Indicator
+	mov	#9.,R0
+	call	GetPgOffs
+	mov	R0,OffScPg1			; Offscreen Page 1.1
+	mov	#13.,R0
+	call	GetPgOffs
+	mov	R0,OffScPg2			; Offscreen Page 2.1
+	mov	#8.,R0
+	call	GetPgOffs
+	mov	R0,OffScPg1+2			; Offscreen Page 1.2
+	mov	#12.,R0
+	call	GetPgOffs
+	mov	R0,OffScPg2+2			; Offscreen Page 2.2
+
+	; backup video table pointer
+	mov	StartRegister-2,-(SP)
+	clr	StartRegister-2
+	mov	@#40010,VTABBackup
+	mov	@#40012,VTABBackup+2
+	mov	(SP)+,StartRegister-2
+
 	; try to create VM8 palette
 	mov	PaletteConfig+2, R0		; for checking later
 	mov	#PaletteConfig, @#177530	; create own palette
@@ -456,10 +501,6 @@ WindowInit:
 	movb	SaveVm1Palette+4.+15., OldVm1N15Color+1	; high byte
 	movb	SaveVm1Palette+4.+31., OldVm1N15Color+0	; low byte
 
-	; modify it
-;	clrb	SaveVm1Palette+4.+15.		; clear them to black color
-;	clrb	SaveVm1Palette+4.+31.
-
 	movb #3,SaveVm1Palette+4.+0.
 	movb #7,SaveVm1Palette+4.+16.
 	movb #3,SaveVm1Palette+4.+15.
@@ -469,63 +510,268 @@ WindowInit:
 	mov	#SaveVm1Palette, @#177530
 	nop	
 
-	mov	#8.,R0
+	; make video tables
+
+	mov	#8.,R0				; connect video ram
 	call	GetPgOffs
 	mov	R0,StartRegister
 
-	; create area
-	mov	PaletteConfig+2, AreaConfig+10	; put created palette # to area config 
-	mov	#AreaConfig, @#177530		; create area
-	nop
+	mov	#23.,R0				; connect vtables
+	call	GetPgOffs
+	mov	R0,StartRegister+2
 
-	mov	PageRegisters,StartRegister
+	mov	#100000,R1
+	call	Addr32
+	mov	R1,VTAB1			; LSB
+	mov	R0,VTAB1+2			; MSB
 
-	; create view
-	mov	AreaConfig+2, ViewConfig+4	; put created area# to view config
-	mov	#ViewConfig, @#177530		; create view
-	nop
+	mov	R1,R3
+	mov	R0,R2
+	add	#300.+16.,R3			;
+	adc	R2
 
-	mov	ViewConfig+2,SetView+2
+	mov	#60000,R1
+	call	Addr32
+	mov	R1,VRAM				; LSB
+	mov	R0,VRAM+2			; MSB
 
-	; create view 2
-	mov	AreaConfig+2, ViewConfig2+4	; put created area# to view config
-	mov	#ViewConfig2, @#177530		; create view
-	nop
+	; video table for menu
 
-	mov	ViewConfig2+2,SetView2+2
+	mov	#100000,R4
+	mov	#100000+1200.+64.,R5
+	mov	#150.+8.,-(SP)			; x2
+11$:
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113720,(R5)+			; 115720->113720
 
-	; create view 3
-	mov	AreaConfig+2, ViewConfig3+4	; put created area# to view config
-	mov	#ViewConfig3, @#177530		; create view
-	nop
+	add	#1,R3
+	adc	R2
 
-	mov	ViewConfig3+2,SetView3+2
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113720,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	add	#64.,R1
+	adc	R0
+
+	dec	(SP)
+	bne	11$
+	tst	(SP)+
+
+	; video table for page 1
+
+	mov	R5,-(SP)
+
+	mov	VTAB1,R1			; LSB
+	mov	VTAB1+2,R0			; MSB
+	sub	#100000,R5
+	asr	R5
+	asr	R5
+	add	R5,R1				;
+	adc	R0
+	mov	R1,VTAB2			; LSB
+	mov	R0,VTAB2+2			; MSB
+
+	mov	R1,R3
+	mov	R0,R2
+	add	#300.+16.,R3			;
+	adc	R2
+
+	mov	VRAM,R1				; LSB
+	mov	VRAM+2,R0			; MSB
+
+	mov	(SP)+,R4
+	mov	R4,R5
+	add	#1200.+64.,R5
+	mov	#75.+4.,-(SP)			; x4
+12$:
+	cmp	#11.+4.,(SP)
+	bne	121$
+	mov	R0,BtmPtr
+	mov	R1,BtmPtr+2
+121$:
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+			; 115320->113320
+
+	add	#1,R3
+	adc	R2
+
+	add	#64.,R1
+	adc	R0
+
+	dec	(SP)
+	bne	12$
+	tst	(SP)+
+
+	; video table for page 2
+
+	mov	R5,-(SP)
+
+	mov	VTAB1,R1			; LSB
+	mov	VTAB1+2,R0			; MSB
+	sub	#100000,R5
+	asr	R5
+	asr	R5
+	add	R5,R1				;
+	adc	R0
+	mov	R1,VTAB3			; LSB
+	mov	R0,VTAB3+2			; MSB
+
+	mov	R1,R3
+	mov	R0,R2
+	add	#300.+16.,R3			;
+	adc	R2
+
+	mov	VRAM,R1				; LSB
+	mov	VRAM+2,R0			; MSB
+
+	add	#8192.,R1			; + 32K
+	adc	R0
+
+	mov	(SP)+,R4
+	mov	R4,R5
+	add	#1200.+64.,R5
+	mov	#75.+4.,-(SP)			; x4
+13$:
+	cmp	#11.+4.,(SP)
+	bne	131$
+	mov	BtmPtr,R0
+	mov	BtmPtr+2,R1
+131$:
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+
+
+	add	#1,R3
+	adc	R2
+
+	mov	R3,(R4)+
+	mov	R2,(R4)+
+	mov	R1,(R5)+
+	mov	R0,(R5)
+	bis	#113320,(R5)+			; 115320->113320
+
+	add	#1,R3
+	adc	R2
+
+	add	#64.,R1
+	adc	R0
+
+	dec	(SP)
+	bne	13$
+	tst	(SP)+
 
 	return
 
+	; menu screen
 SetTopView1:
-	mov	#SetView, @#177530
-	nop
+	mov	StartRegister-2,-(SP)
+	clr	StartRegister-2
+	mov	VTAB1,@#40010
+	mov	VTAB1+2,@#40012
+	mov	(SP)+,StartRegister-2
+
 	return
 
+	; video page 1
 SetTopView2:
-	mov	#SetView2, @#177530
-	nop
+	mov	StartRegister-2,-(SP)
+	clr	StartRegister-2
+	mov	VTAB2,@#40010
+	mov	VTAB2+2,@#40012
+	mov	(SP)+,StartRegister-2
+
 	return
 
+	; video page 2
 SetTopView3:
-	mov	#SetView3, @#177530
-	nop
+	mov	StartRegister-2,-(SP)
+	clr	StartRegister-2
+	mov	VTAB3,@#40010
+	mov	VTAB3+2,@#40012
+	mov	(SP)+,StartRegister-2
+
+	return
+
+FlipPage:
+	com	ActPage
+	beq	1$
+	call	SetTopView2
+	mov	OffScPg2,OffActPg
+	mov	OffScPg2+2,OffActPg+2
+	return
+1$:
+	call	SetTopView3
+	mov	OffScPg1,OffActPg
+	mov	OffScPg1+2,OffActPg+2
 	return
 
 WindowFree:
-	; free window and palette
-	mov	#2, AreaConfig			; command "free area"
-	mov	#AreaConfig, @#177530		; free area and its view
-	nop
+	; free palette
 	mov	#21, PaletteConfig		; command "free palette"
 	mov	#PaletteConfig, @#177530	; free palette
 	nop
+
 	; restore previous vm1 #0 palette color value
 	movb	OldVm1N0Color+1, SaveVm1Palette+4.+0.
 	movb	OldVm1N0Color+0, SaveVm1Palette+4.+16.
@@ -534,6 +780,13 @@ WindowFree:
 	mov	#23, SaveVm1Palette		; modify vm1 #0 palette
 	mov	#SaveVm1Palette, @#177530
 	nop
+
+	; restore video table
+	mov	StartRegister-2,-(SP)
+	clr	StartRegister-2
+	mov	VTABBackup,@#40010
+	mov	VTABBackup+2,@#40012
+	mov	(SP)+,StartRegister-2
 	return
 
 OldVm1N0Color:	.word	0			; old #0 color to save it and restore after exit from program
@@ -542,63 +795,6 @@ SaveVm1Palette:	.word	25			; 25 - save palette
 		.byte	0			; 1-bit for pixel
 		.byte	0			; palette #0
 		.blkw	16.			; 32 bytes of palette
-
-; screen buffer (so called "area") description
-AreaConfig:	.word	46			; 46 - command "create and register area"
-		.word	C_VADDR			; address of screen buffer (returns area id here after #46 command)
-		.word	VYsize			; rows count
-		.word	VXsize			; bytes count in row
-		; palette word 
-		.byte	7			; 256 colors
-		.byte	0			; palette #
-
-; window (so called "view") description
-ViewConfig:	.word	4			; 4 - command "create view"
-		.word	0			; view id
-		.word	0			; area id
-		.word	0			; vertical content offset
-		.word	0			; horisontal content offset
-		; these four words will be anyway corrected by window manager program - so they are maxed here
-		.word	0.			; top position (row)
-		.word	299.			; bottom position (row)
-		.word	0.			; left position (column, 32-pix)
-		.word	25.			; right position (column)
-		.byte	1,0			; scale x,y (0 = *4, 1 = *2, 2 = *1)
-
-; window (so called "view") description
-ViewConfig2:	.word	4			; 4 - command "create view"
-		.word	0			; view id
-		.word	0			; area id
-		.word	0			; vertical content offset
-		.word	0			; horisontal content offset
-		; these four words will be anyway corrected by window manager program - so they are maxed here
-		.word	0.			; top position (row)
-		.word	299.			; bottom position (row)
-		.word	0.			; left position (column, 32-pix)
-		.word	25.			; right position (column)
-		.byte	2,1			; scale x,y (0 = *4, 1 = *2, 2 = *1)
-
-; window (so called "view") description
-ViewConfig3:	.word	4			; 4 - command "create view"
-		.word	0			; view id
-		.word	0			; area id
-		.word	0			; vertical content offset
-		.word	104.			; horisontal content offset
-		; these four words will be anyway corrected by window manager program - so they are maxed here
-		.word	0.			; top position (row)
-		.word	127.			; bottom position (row)
-		.word	0.			; left position (column, 32-pix)
-		.word	7.			; right position (column)
-		.byte	2,1			; scale x,y (0 = *4, 1 = *2, 2 = *1)
-
-SetView:	.word	10.			; set top
-		.word	0.			; view id
-
-SetView2:	.word	10.			; set top
-		.word	0.			; view id
-
-SetView3:	.word	10.			; set top
-		.word	0.			; view id
 
 ; palette configuration
 PaletteConfig:	.word	17			; command "create palette"
@@ -1003,6 +1199,11 @@ MouseProc:
 
 	; r0=-127..127 -> clip to +/-63.
 	; r1=-127..127 -> clip to +/-63.
+
+	asl	r0
+	asl	r1
+
+
 	cmp	r0,#64.
 	blt	15$
 	mov	#63.,r0
@@ -1042,49 +1243,9 @@ MouseProc:
 	return
 
 ; //////////////////////////////////////////////////////////////////////////////
-; // some sounds code is here
-; //////////////////////////////////////////////////////////////////////////////
-
-SND:             
-1$:	TSTB	@#176240
-	BPL	1$
-	MOVB	(R0)+,@#176242
-	SOB	R1,1$  
-	RETURN 
-
-SUN:	BIT	#40,@#176240
-	BEQ	6$
-	MOV	#SNDB,R0
-	MOV	(R0)+,R1 
-5$:	TSTB	@#176240
-	BPL	5$
-	MOVB	(R0)+,@#176242
-	SOB	R1,5$  
-6$:	RETURN          
-
-GONG:	MOV	#SNDC,R0
-	MOV	(R0)+,R1
-	CALL	SND 
-	RETURN
-
-SNDB:	.WORD	SNDBLN
-	.BYTE	000,210,201,020,203,012,202,003,200,003,014,004,014,005,001,023
-	.BYTE	015,045,000,211,000,212,000,000 
-	SNDBLN=.-SNDB-2
-	.EVEN
-
-SNDC:	.WORD	SNDCLN
-	.BYTE	000,210,201,020,203,074,202,001,200,001,001,007,007,017,007,017
-	.BYTE	000,211,201,010,203,050,200,001,202,003,001,007,007,027,000,212
-	.BYTE	000,000 
-	SNDCLN=.-SNDC-2
-	.EVEN
-
-; //////////////////////////////////////////////////////////////////////////////
 ; // game code is here
 ; //////////////////////////////////////////////////////////////////////////////
 
-	@include fnt35.mac
 	@include cmn35.mac	
 	@include ar35.mac
 	@include s35.mac
@@ -1095,15 +1256,9 @@ SNDC:	.WORD	SNDCLN
 	@include lg35.mac
 	@include txt35.mac
 	@include menu35.mac
-	.even
+	@include fnt35.mac
 
 CpuEnd:
-
-; //////////////////////////////////////////////////////////////////////////////
-; // game virtual screen
-; //////////////////////////////////////////////////////////////////////////////
-
-MNVSC:	.blkb VXsize*16.	; VXsize/2*32
-	.even
+	.word	0
 
 	.end	Start

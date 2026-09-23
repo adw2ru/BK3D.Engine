@@ -1,15 +1,20 @@
 	;
 	; DRAW FRAME
-GRET:	RET
-DRDIFF:	call SetPrecalcs
+GRET:	mov	(SP)+,StartRegister-2
+	RET
+MINH:	.WORD 0
+DRDIFF:	SETPRECT
+	;
+	mov	StartRegister-2,-(SP)
+	mov	OffActPg,StartRegister-2
+	;
+	MOV #32.,MINH
 	;
 	MOV #MNVSC,R4
 	MOV #FRBF1,R5
 	CLR 208.(R5)		; SET END MARKER
 	;
-DRSL1:	;CALL @SNDPR
-	;
-	MOV (R5)+,R2		; TAKE HEIGH&TEXTURE COORD.
+DRSL1:	MOV (R5)+,R2		; TAKE HEIGH&TEXTURE COORD.
 	BEQ GRET		; END MARKER?
 	;
 	MOVB R2,R0		; TEXTURE COORD.
@@ -29,6 +34,11 @@ DRSL1:	;CALL @SNDPR
 1$:	MOV #32.,R3
 	CMP R2,R3		; CLIP HEIGHT
 	BHI FC1
+	;
+	CMP R2,MINH
+	BHIS 2$
+	MOV R2,MINH
+2$:
 	;
 	MOV R2,R1		; SET LIGHT
 	DEC R1			; 32..1->31..0
@@ -53,10 +63,13 @@ FC1:	CLRB -2.(R5)		; FOR FLOOR REDRAW
 	;
 	ADD #7.*512.,R0		; LIGHT OFFSET
 	;
-	CLR R1
+	;CLR R1
+	MOV #127.*256.,R1	; HALF TEXEL OFFS.
 DWLB1:
+xPrt=0
 .rept	32.
-	MOVB (R0),0(R4)
+	MOVB (R0),xPrt(R4)
+xPrt=xPrt+256.
 	ADD R2,R1
 	ADC R0
 .endr
@@ -64,16 +77,6 @@ DWLB1:
 	INC R4
 	;
 	JMP DRSL1
-	;
-	; PRECOMPUTE BIG WALL DRAW
-DWLB1P:	MOV #DWLB1,R0
-	MOV #32.,R1
-	CLR R2
-1$:	MOV R2,2(R0)
-	ADD #VXsize/2,R2
-	ADD #8.,R0
-	SOB R1,1$
-	RET
 	;
 	; FLOOR TEXTURE COORD.VARS.
 FLVX:	.WORD 0	; NY=VX
@@ -83,15 +86,6 @@ FLPLX:	.WORD 0
 FLPLY:	.WORD 0
 	;
 FLBUF:	.BLKB 264.	; 32x(U,V,...,dU,dV,...)
-	;
-	; UPDATE FLOOR TEXTURE COORD.
-FLUPD:  MOV #FLBUF+16.,R1	; 16.
-	MOV #FLBUF+148.,R2	; 132.+16.
-.rept	28.
-	ADD (R2)+,(R1)+	; U+=dU
-	ADD (R2)+,(R1)+	; V+=dV
-.endr
-	RET
 	;
 	; FLOOR U&V TEXTURE COORD.CALC.
 SETUV:	MOV SPLA,R0
@@ -182,82 +176,98 @@ SETUV:	MOV SPLA,R0
 	;
 	; END OF FLOOR TEXTURE COORD.CALC.
 	;
-	MOV #FRBF1,R5
-	MOV #100000+192.,R4
-	CALL SetPrecA	; 1st part
-	MOV #35.,R0
-	CALL SUBUP1
-	MOV #100000+192.,R4
-	CALL SetPrecB	; 2nd part
-	MOV #35.,R0
-	CALL SUBUP1
-	MOV #100000+192.,R4
-	CALL SetPrecC	; 3rd part
-	MOV #34.,R0
-	CALL SUBUP1
+	MOV #32.,-(SP)
+
+	MOV #FLBUF,R4
+	MOV MINH,R0
+	SUB R0,(SP)
+	BEQ 105$
+
+	ASL R0
+	MOV R0,R5
+	ASL R0
+	ADD R0,R4
+
+	ADD #7400,R5	; BOTH: MASK&COUNTER
+	ADD R0,R5	; *6
+
+104$:	MOV 132.(R4),R0	; dU
+	MOV (R4)+,R1	; U
+	MOV 132.(R4),R2	; dV
+	MOV (R4)+,R3	; V
+
+	MOV R4,-(SP)
+
+	SETPRECA
+	CALL Prt1
+
+	SETPRECB
+	CALL Prt1
+
+	SETPRECC
+	CALL Prt2
+
+	MOV (SP)+,R4
+
+	ADD #6.,R5
+
+	DEC (SP)
+	BNE 104$
+105$:
+	TST (SP)+
 	;
 	RET
 	;
-	; UNROLLED UV TRANSFORM
-CNVUV:
-.rept	32.
-	MOV (R2)+,R1	; 2
-	BIC R5,R1	; 2
-	ADD (R2)+,R1	; 2
-	SWAB R1		; 2
-	MOVB R1,0(R4)	; 4 12. BYTES
+xPrt=100002-7400
+Prt1:
+.rept	35.
+	MOV R1,R4
+	BIC R5,R4
+	ADD R3,R4
+	SWAB R4
+	ADD R0,R1
+	ADD R2,R3
+	MOVB R4,xPrt(R5)
+xPrt=xPrt+194.
 .endr
 	RET
-	;
-	; PRECOMPUTE UV TRANSFORM
-CNVUVP:	MOV #CNVUV+384.,R0
-	MOV #32.,R1
-	MOV #2.,R2
-1$:	SUB #12.,R0
-	SUB #6.,R2
-	MOV R2,10.(R0)	; UPD. MOVB R1,?(R4)
-	SOB R1,1$
-	RET
-	;
-	; UPDATE UNROLLED DRAW CODE
-SUBUP1:	MOVB (R5),R3
-	BEQ 1$
-	;
-	MOV R5,-(SP)
-	NEG R3
-	ASL R3
-	ASL R3
-	MOV R3,R2
-	MOV R3,R1
-	ASL R3
-	ADD R1,R3
-	ADD #FLBUF+128.,R2
-	MOV #7777,R5
-	CALL CNVUV+384.(R3)
-	MOV (SP)+,R5
-	;
-1$:	TST (R5)+
-	ADD #194.,R4
-	CALL FLUPD 
-	SOB R0,SUBUP1
+xPrt=100002-7400
+Prt2:
+.rept	34.
+	MOV R1,R4
+	BIC R5,R4
+	ADD R3,R4
+	SWAB R4
+	ADD R0,R1
+	ADD R2,R3
+	MOVB R4,xPrt(R5)
+xPrt=xPrt+194.
+.endr
 	RET
 	;
 	; UPDATE CEIL
 UPDCEL: CALL SETUV
 	MOV MTRLHV+6,StartRegister
-UPDCE2: MOV #FRBF1,R5
+UPDCE2: 
+	mov	StartRegister-2,-(SP)
+	mov	OffActPg,StartRegister-2
+
+	MOV #FRBF1,R5
 	MOV #100000+192.,R4
-	CALL SetPrecA	; 1st part
+	SETPRECA	; 1st part
 	MOV #35.,R0
 	CALL SUBUP2
 	MOV #100000+192.,R4
-	CALL SetPrecB	; 2nd part
+	SETPRECB	; 2nd part
 	MOV #35.,R0
 	CALL SUBUP2
 	MOV #100000+192.,R4
-	CALL SetPrecC	; 3rd part
+	SETPRECC	; 3rd part
 	MOV #34.,R0
 	CALL SUBUP2
+
+	mov	(SP)+,StartRegister-2
+
 	RET
 	;
 	; UPDATE FLOOR
@@ -278,33 +288,31 @@ SUBUP2:	MOVB (R5),R3
 	SOB R0,SUBUP2
 	RET
 	;
-DRTOP:	call Scrn1
-	MOV #MNVSC+3328.-104.,R0
-	MOV #C_VADDR,R1
-	MOV #32.,R2
-1$:	MOV #13.,R3
-2$:	MOV (R0)+,(R1)+
-	MOV (R0)+,(R1)+
-	MOV (R0)+,(R1)+
-	MOV (R0)+,(R1)+
-	SOB R3,2$
-	SUB #VXsize,R0
-	ADD #VXsize/2,R1
-	SOB R2,1$
-	RET
-	;
-DRBTM:	call Scrn1
-	MOV #MNVSC,R0
-	MOV #C_VADDR+15000,R1
-	MOV #32.,R2
-1$:	MOV #13.,R3
-2$:	MOV (R0)+,(R1)+
-	MOV (R0)+,(R1)+
-	MOV (R0)+,(R1)+
-	MOV (R0)+,(R1)+
-	SOB R3,2$
-	ADD #VXsize/2,R1
-	SOB R2,1$
+	; COPY SCREEN(S)
+DRTOP:	
+	mov	StartRegister-2,-(SP)
+	mov	StartRegister,-(SP)
+
+	mov	OffActPg,StartRegister-2	; Src
+	mov	OffActPg+2,StartRegister	; Dst
+
+	mov	#C_VADDR-256.,R0		; Src
+	mov	#C_VADDR,R1			; Dst
+
+	mov	#32.,R2				; N rows
+1$:
+.rept	52.
+	mov	(R0)+,(R1)+
+.endr
+
+	sub	#256.+104.,R0
+	add	#256.-104.,R1
+
+	sob	R2,1$
+
+	mov	(SP)+,StartRegister
+	mov	(SP)+,StartRegister-2
+
 	RET
 	;
 	;
@@ -315,9 +323,7 @@ DRBTM:	call Scrn1
 	; OUT:
 	; R0=RAW TYPE
 	; R1=RAW HEIGHT,TEXT.COORD.
-CORE:	;CALL @SNDPR
-	;
-	MOV R3,-(SP)		; DA
+CORE:	MOV R3,-(SP)		; DA
 	MOV R4,-(SP)		; DB
 	MOV R5,-(SP)
 	MOV R3,R2
